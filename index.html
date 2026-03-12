@@ -2,186 +2,19 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Симуляция MOX-датчика</title>
+    <title>Интерактивные стенды</title>
     <style>
-        body { 
-            background-color: #121212; 
-            color: #fff; 
-            font-family: 'Segoe UI', sans-serif; 
-            display: flex; 
-            flex-direction: column; 
-            align-items: center; 
-            justify-content: center; 
-            height: 100vh; 
-            margin: 0; 
-        }
-        canvas { 
-            background-color: #1e1e1e; 
-            border-radius: 50%; 
-            box-shadow: 0 0 30px rgba(51, 204, 255, 0.2); 
-            border: 2px solid #333;
-        }
-        #controls { 
-            margin-top: 30px; 
-            width: 600px; 
-            text-align: center; 
-            background: #1e1e1e;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
-        }
-        input[type=range] { 
-            width: 100%; 
-            margin: 20px 0; 
-            cursor: pointer;
-        }
-        .info { 
-            display: flex; 
-            justify-content: space-between; 
-            font-size: 1.2rem; 
-            font-weight: bold; 
-        }
-        .desc {
-            color: #888;
-            font-size: 0.9rem;
-            margin-top: 10px;
-        }
+        body { font-family: sans-serif; background-color: #121212; color: #fff; padding: 40px; }
+        a { color: #33ccff; text-decoration: none; font-size: 1.2rem; display: block; margin-bottom: 15px; }
+        a:hover { text-decoration: underline; color: #ffaa00; }
     </style>
 </head>
 <body>
-    <h2 style="margin-bottom: 20px;">Нанозерно SnO2: Формирование обедненной зоны</h2>
+    <h1>Интерактивные симуляции для лекций</h1>
     
-    <canvas id="simCanvas" width="500" height="500"></canvas>
-    
-    <div id="controls">
-        <div class="info">
-            <span id="oxyLevel" style="color: #ff4444;">Кислород на поверхности: 0%</span>
-            <span id="resLevel" style="color: #33ccff;">Сопротивление: МИНИМАЛЬНОЕ</span>
-        </div>
-        <input type="range" id="oxygenSlider" min="0" max="100" value="0">
-        <div class="desc">
-            Право (Чистый воздух)<br>
-            Влево (Прилетел газ): .
-        </div>
-    </div>
+    <a href="mox.html">1. MOX-датчик: Макроуровень (Обедненная зона)</a>
+    <a href="mox-nano.html">2. MOX-датчик: Наноуровень (Квантовое туннелирование)</a>
+    <a href="transistor.html">3. Биполярный транзистор (n-p-n переход)</a>
 
-    <script>
-        const canvas = document.getElementById('simCanvas');
-        const ctx = canvas.getContext('2d');
-        const slider = document.getElementById('oxygenSlider');
-        const oxyText = document.getElementById('oxyLevel');
-        const resText = document.getElementById('resLevel');
-
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
-        const grainRadius = 240; // Чуть меньше канваса
-        const numElectrons = 300; // Количество носителей заряда
-        let electrons = [];
-
-        // Создаем свободных работяг (электроны)
-        for(let i = 0; i < numElectrons; i++) {
-            let r = Math.random() * grainRadius;
-            let theta = Math.random() * 2 * Math.PI;
-            electrons.push({
-                x: centerX + r * Math.cos(theta),
-                y: centerY + r * Math.sin(theta),
-                vx: (Math.random() - 0.5) * 5,
-                vy: (Math.random() - 0.5) * 5
-            });
-        }
-
-        function animate() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            let oxygenPercent = slider.value / 100;
-            // Ширина мертвой зоны (до 85% от радиуса зерна)
-            let depletionWidth = oxygenPercent * (grainRadius * 0.85); 
-            let safeRadius = grainRadius - depletionWidth;
-
-            // 1. Отрисовка злого кислорода на границе (красные точки)
-            let numOxy = Math.floor(oxygenPercent * 150);
-            ctx.fillStyle = '#ff4444';
-            for(let i = 0; i < numOxy; i++) {
-                let angle = (i / numOxy) * 2 * Math.PI + (Date.now() / 2000); // Немного крутятся
-                let ox = centerX + (grainRadius - 5) * Math.cos(angle);
-                let oy = centerY + (grainRadius - 5) * Math.sin(angle);
-                ctx.beginPath();
-                ctx.arc(ox, oy, 6, 0, 2 * Math.PI);
-                ctx.fill();
-            }
-
-            // 2. Отрисовка границы обедненной зоны (пунктир)
-            if (oxygenPercent > 0) {
-                ctx.beginPath();
-                ctx.arc(centerX, centerY, Math.max(0, safeRadius), 0, 2 * Math.PI);
-                ctx.strokeStyle = 'rgba(255, 68, 68, 0.4)';
-                ctx.setLineDash([10, 15]);
-                ctx.lineWidth = 3;
-                ctx.stroke();
-                ctx.setLineDash([]); // Сброс
-            }
-
-            // 3. Физика и отрисовка электронов
-            ctx.fillStyle = '#33ccff';
-            electrons.forEach(e => {
-                // Броуновское движение
-                e.vx += (Math.random() - 0.5) * 1.5;
-                e.vy += (Math.random() - 0.5) * 1.5;
-
-                // Ограничение скорости
-                let speed = Math.hypot(e.vx, e.vy);
-                if(speed > 4) {
-                    e.vx = (e.vx / speed) * 4;
-                    e.vy = (e.vy / speed) * 4;
-                }
-
-                e.x += e.vx;
-                e.y += e.vy;
-
-                // Считаем дистанцию от центра
-                let dx = e.x - centerX;
-                let dy = e.y - centerY;
-                let dist = Math.hypot(dx, dy);
-
-                // Жесткое отталкивание: если электрон вылетел в мертвую зону, пинком загоняем обратно
-                if (dist > safeRadius) {
-                    let overlap = dist - safeRadius;
-                    let pushFactor = 0.2 * overlap; // Сила пинка
-                    e.vx -= (dx / dist) * pushFactor;
-                    e.vy -= (dy / dist) * pushFactor;
-
-                    // Коррекция позиции, чтобы они не вытекали за границу вообще
-                    e.x = centerX + (dx / dist) * Math.max(0, (safeRadius - 2));
-                    e.y = centerY + (dy / dist) * Math.max(0, (safeRadius - 2));
-                }
-
-                // Рисуем сам электрон
-                ctx.beginPath();
-                ctx.arc(e.x, e.y, 3, 0, 2 * Math.PI);
-                ctx.fill();
-            });
-
-            // 4. Обновление текстовки в UI
-            oxyText.innerText = `Кислород (O-): ${slider.value}%`;
-            if (slider.value == 0) {
-                resText.innerText = "Сопротивление: МИНИМУМ";
-                resText.style.color = "#33ccff";
-            } else if (slider.value < 40) {
-                resText.innerText = "Сопротивление: СРЕДНЕЕ";
-                resText.style.color = "#ffaa00";
-            } else if (slider.value < 85) {
-                resText.innerText = "Сопротивление: ВЫСОКОЕ";
-                resText.style.color = "#ff4444";
-            } else {
-                resText.innerText = "Сопротивление: П***** (Тока нет)";
-                resText.style.color = "#ff0000";
-            }
-
-            requestAnimationFrame(animate);
-        }
-        
-        // Запускаем шарманку
-        animate();
-    </script>
 </body>
 </html>
