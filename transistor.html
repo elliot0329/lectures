@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>n-p-n Транзистор: Интерактивный стенд</title>
+    <style>
+        body { 
+            background-color: #0a0a0d; 
+            color: #eee; 
+            font-family: 'Segoe UI', Roboto, Helvetica, sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+            overflow: hidden;
+        }
+        h2 { margin-bottom: 20px; color: #fff; text-shadow: 0 0 10px rgba(0,255,200,0.5); }
+        .main-container {
+            display: flex;
+            gap: 30px;
+            background: #141419;
+            padding: 30px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.7);
+            border: 1px solid #222;
+        }
+        canvas { 
+            background-color: #000; 
+            border-radius: 8px; 
+            border: 2px solid #333;
+            box-shadow: inset 0 0 20px rgba(0,255,200,0.1);
+        }
+        .control-panel { 
+            width: 320px; 
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+        .control-group {
+            background: #1a1a22;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #00e5ff;
+        }
+        label { font-weight: bold; color: #00e5ff; display: block; margin-bottom: 10px; font-size: 1.1rem;}
+        input[type=range] { width: 100%; cursor: pointer; accent-color: #00e5ff; }
+        
+        .meter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .meter {
+            background: #0d0d12;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            font-family: monospace;
+            font-size: 1.2rem;
+            display: flex;
+            justify-content: space-between;
+        }
+        .meter-label { color: #888; }
+        .meter-value { font-weight: bold; }
+
+        .desc {
+            color: #aaa;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            background: #1a1a22;
+            padding: 15px;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body>
+    <h2>n-p-n транзистор: Визуализация токов</h2>
+    
+    <div class="main-container">
+        <canvas id="transistorCanvas" width="600" height="500"></canvas>
+        
+        <div class="control-panel">
+            <div class="control-group">
+                <label for="vbeSlider">Напряжение База-Эмиттер ($V_{BE}$)</label>
+                <input type="range" id="vbeSlider" min="0" max="1000" value="0">
+                <div style="text-align: center; margin-top: 5px; font-weight: bold;" id="vbeDisplay">0.00 В</div>
+            </div>
+
+            <div class="meter-group">
+                <div class="meter" style="border-color: #ff4444;">
+                    <span class="meter-label">Ток Базы ($I_B$):</span>
+                    <span class="meter-value" id="ibVal" style="color: #ff4444;">0.00 мкА</span>
+                </div>
+                <div class="meter" style="border-color: #00e5ff;">
+                    <span class="meter-label">Ток Коллектора ($I_C$):</span>
+                    <span class="meter-value" id="icVal" style="color: #00e5ff;">0.00 мА</span>
+                </div>
+            </div>
+
+            <div class="desc">
+                Крути ползунок. При $V_{BE} < 0.6 В$ транзистор заперт. Как только напряжение превышает порог, электроны из Эмиттера лавиной врываются в Базу. База настолько тонкая, что 98% из них пролетают её насквозь и всасываются Коллектором. Это и есть эффект усиления.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('transistorCanvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('vbeSlider');
+        const vbeDisp = document.getElementById('vbeDisplay');
+        const ibDisp = document.getElementById('ibVal');
+        const icDisp = document.getElementById('icVal');
+
+        // Размеры зон
+        const eWidth = 200;
+        const bWidth = 20; // КРИТИЧЕСКИ ТОНКАЯ БАЗА
+        const cWidth = 380;
+        const regionHeight = 400;
+        const yTop = 50;
+
+        // Электроны
+        const numElectrons = 500;
+        let electrons = [];
+
+        // Дырки в базе (p-тип)
+        let holes = [];
+        for(let i=0; i<15; i++) {
+            holes.push({
+                x: eWidth + Math.random() * bWidth,
+                y: yTop + Math.random() * regionHeight,
+                active: true
+            });
+        }
+
+        // Инициализация электронов в Эмиттере
+        for(let i = 0; i < numElectrons; i++) {
+            electrons.push({
+                x: Math.random() * eWidth,
+                y: yTop + Math.random() * regionHeight,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                state: 'emitter' // emitter, base, collector, base_out
+            });
+        }
+
+        function drawRegion(x, y, w, h, label, color, textColor='#fff') {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, w, h);
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, w, h);
+            
+            ctx.fillStyle = textColor;
+            ctx.font = 'bold 16px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, x + w/2, y - 10);
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Получаем напряжение (0.00 - 1.00 В)
+            let vbe = slider.value / 1000;
+            vbeDisp.innerText = vbe.toFixed(2) + " В";
+
+            // Порог открытия (~0.6В)
+            let isOpen = vbe > 0.6;
+            let driveForce = isOpen ? (vbe - 0.6) * 20 : 0; // Сила, толкающая электроны
+
+            // Расчет токов (условный, для визуализации)
+            let baseCurrentRaw = isOpen ? (vbe - 0.6) * 50 : 0; 
+            let collectorCurrentRaw = baseCurrentRaw * 100; // Усиление hFE = 100
+
+            ibDisp.innerText = baseCurrentRaw.toFixed(2) + " мкА";
+            icDisp.innerText = (collectorCurrentRaw / 1000).toFixed(2) + " мА"; // Перевод в мА
+
+            // 1. Отрисовка зон
+            // Эмиттер (n-тип)
+            drawRegion(0, yTop, eWidth, regionHeight, 'ЭМИТТЕР (n)', 'rgba(30, 30, 40, 0.8)', '#00e5ff');
+            // База (p-тип) - Тонкая и красная
+            drawRegion(eWidth, yTop, bWidth, regionHeight, 'БАЗА (p)', 'rgba(255, 50, 50, 0.3)', '#ff4444');
+            // Коллектор (n-тип) - Огромный
+            drawRegion(eWidth + bWidth, yTop, cWidth, regionHeight, 'КОЛЛЕКТОР (n)', 'rgba(30, 30, 40, 0.8)', '#00e5ff');
+
+            // 2. Отрисовка дырок в Базе
+            ctx.fillStyle = '#ff4444';
+            holes.forEach(h => {
+                ctx.beginPath();
+                ctx.arc(h.x, h.y, 4, 0, Math.PI*2);
+                ctx.fill();
+            });
+
+            // 3. Физика электронов
+            ctx.fillStyle = '#00e5ff'; // Синие glowing электроны
+            electrons.forEach(e => {
+                
+                // Основное хаотичное движение
+                e.vx += (Math.random() - 0.5) * 1;
+                e.vy += (Math.random() - 0.5) * 1;
+
+                // Ограничение скорости
+                let speed = Math.hypot(e.vx, e.vy);
+                if(speed > 6) { e.vx = (e.vx/speed)*6; e.vy = (e.vy/speed)*6; }
+
+                // Прикладываем силу n-p перехода (открыт/закрыт)
+                if (e.state === 'emitter') {
+                    if (isOpen) {
+                        // Толкаем вправо к Базе
+                        e.vx += Math.random() * driveForce; 
+                    } else {
+                        // Барьер заперт, отскакивают от границы Базы
+                        if (e.x + e.vx > eWidth - 5) {
+                            e.vx = -Math.abs(e.vx);
+                        }
+                    }
+                    // Границы Эмиттера (лево, верх, низ)
+                    if (e.x + e.vx < 5) e.vx = Math.abs(e.vx);
+                    if (e.y + e.vy < yTop + 5 || e.y + e.vy > yTop + regionHeight - 5) e.vy *= -1;
+                }
+
+                // Переход из Эмиттера в Базу
+                if (e.state === 'emitter' && e.x > eWidth) {
+                    e.state = 'base';
+                    e.vx = 5 + Math.random()*5; // Даем пинок сквозь Базу
+                }
+
+                // Логика внутри Базы (КРИТИЧНО)
+                if (e.state === 'base') {
+                    // База тонкая, они пролетают её быстро
+                    
+                    // Шанс рекомбинации (попасть в дырку) - 2%
+                    if (Math.random() < 0.02) {
+                        e.state = 'base_out'; // Уходит в ток Базы
+                        e.vx = 0; e.vy = 5; // Направляем вниз к выводу Базы
+                    }
+
+                    // Если пролетел Базу насквозь
+                    if (e.x > eWidth + bWidth) {
+                        e.state = 'collector';
+                        e.vx = 10 + Math.random()*10; // Мощное всасывание Коллектором
+                    }
+                    
+                    // Границы Базы (верх, низ)
+                    if (e.y + e.vy < yTop + 5 || e.y + e.vy > yTop + regionHeight - 5) e.vy *= -1;
+                }
+
+                // Логика в Коллекторе
+                if (e.state === 'collector') {
+                    // Мощное поле тащит вправо
+                    e.vx += 1; 
+                    // Если улетел за край Коллектора — возвращаем в Эмиттер
+                    if (e.x > canvas.width) {
+                        e.state = 'emitter';
+                        e.x = Math.random() * eWidth;
+                        e.y = yTop + Math.random() * regionHeight;
+                        e.vx = (Math.random()-0.5)*4; e.vy = (Math.random()-0.5)*4;
+                    }
+                    // Границы Коллектора (верх, низ)
+                    if (e.y + e.vy < yTop + 5 || e.y + e.vy > yTop + regionHeight - 5) e.vy *= -1;
+                }
+
+                // Логика тока Базы (рекомбинация)
+                if (e.state === 'base_out') {
+                    e.vy = 8; // Хуярит вниз
+                    if (e.y > yTop + regionHeight) {
+                         // Улетел вниз — возвращаем в Эмиттер
+                        e.state = 'emitter';
+                        e.x = Math.random() * eWidth;
+                        e.y = yTop + Math.random() * regionHeight;
+                        e.vx = (Math.random()-0.5)*4; e.vy = (Math.random()-0.5)*4;
+                    }
+                }
+
+                e.x += e.vx;
+                e.y += e.vy;
+
+                // Рисуем электрон
+                ctx.beginPath();
+                ctx.arc(e.x, e.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

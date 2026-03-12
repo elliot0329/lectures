@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>MOX Наноуровень: Туннелирование</title>
+    <style>
+        body { 
+            background-color: #0d0d12; 
+            color: #fff; 
+            font-family: 'Segoe UI', sans-serif; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center; 
+            height: 100vh; 
+            margin: 0; 
+            overflow: hidden;
+        }
+        .container {
+            display: flex;
+            gap: 30px;
+            align-items: flex-start;
+        }
+        canvas { 
+            background-color: #15151e; 
+            border-radius: 10px; 
+            box-shadow: 0 0 40px rgba(0, 255, 200, 0.1); 
+            border: 2px solid #222;
+        }
+        .panel { 
+            width: 350px; 
+            background: #1a1a24;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        h2 { margin: 0 0 10px 0; font-size: 1.5rem; text-align: center; }
+        input[type=range] { width: 100%; cursor: pointer; }
+        .metric {
+            background: #0d0d12;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #33ccff;
+            font-family: monospace;
+            font-size: 1.1rem;
+        }
+        .metric span { display: block; font-size: 1.5rem; font-weight: bold; margin-top: 5px; }
+        .desc { color: #888; font-size: 0.9rem; line-height: 1.4; }
+    </style>
+</head>
+<body>
+    <h2 style="margin-bottom: 20px;">Наноуровень: Нанозерна и Квантовое туннелирование</h2>
+    
+    <div class="container">
+        <canvas id="simCanvas" width="600" height="600"></canvas>
+        
+        <div class="panel">
+            <div>
+                <label style="font-weight: bold; color: #ff4444;">Концентрация кислорода (O⁻)</label>
+                <input type="range" id="oxygenSlider" min="0" max="100" value="0">
+            </div>
+
+            <div class="metric" style="border-color: #ffaa00;">
+                Ширина барьера ($W$)
+                <span id="barrierVal" style="color: #ffaa00;">1.0 нм</span>
+            </div>
+
+            <div class="metric" style="border-color: #00ffcc;">
+                Вероятность туннелирования
+                <span id="probVal" style="color: #00ffcc;">98.5 %</span>
+            </div>
+
+            <div class="metric" style="border-color: #ff4444;">
+                Сопротивление ($R_s$)
+                <span id="resVal" style="color: #ff4444;">1.2 кОм</span>
+            </div>
+
+            <div class="desc">
+                Крути ползунок. Кислород оседает на границах зерен, вытесняя электроны. Потенциальный барьер утолщается. Вероятность квантового скачка (туннелирования) падает по экспоненте, а сопротивление улетает в космос.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const slider = document.getElementById('oxygenSlider');
+        
+        // UI элементы
+        const elBarrier = document.getElementById('barrierVal');
+        const elProb = document.getElementById('probVal');
+        const elRes = document.getElementById('resVal');
+
+        // Настройки зерен
+        const baseRadius = 110;
+        const baseGap = 5; // Стартовое расстояние между краями зерен (в пикселях, условно 1 нм)
+        const grains = [
+            { x: 300, y: 160 }, // Верхнее
+            { x: 170, y: 380 }, // Левое
+            { x: 430, y: 380 }, // Правое
+            { x: 300, y: 380 }  // Центральное (нижнее) - сдвинул немного для красоты
+        ];
+        // Пересчитаем координаты, чтобы они были красиво упакованы
+        grains[0] = { x: 300, y: 170 };
+        grains[1] = { x: 170, y: 395 };
+        grains[2] = { x: 430, y: 395 };
+        grains[3] = { x: 300, y: 440 }; // Уберем 4-е, оставим 3 для идеального треугольника
+        
+        const finalGrains = [
+            { x: 300, y: 180, id: 0 },
+            { x: 180, y: 390, id: 1 },
+            { x: 420, y: 390, id: 2 }
+        ];
+
+        // Электроны
+        const numElectrons = 400;
+        let electrons = [];
+        let flashes = []; // Для отрисовки вспышек туннелирования
+
+        // Инициализация электронов
+        for(let i = 0; i < numElectrons; i++) {
+            let grain = finalGrains[Math.floor(Math.random() * finalGrains.length)];
+            let r = Math.random() * (baseRadius - 10);
+            let theta = Math.random() * 2 * Math.PI;
+            electrons.push({
+                x: grain.x + r * Math.cos(theta),
+                y: grain.y + r * Math.sin(theta),
+                vx: (Math.random() - 0.5) * 8,
+                vy: (Math.random() - 0.5) * 8,
+                grainId: grain.id
+            });
+        }
+
+        function drawHexagon(x, y, r, stroke, fill, dash = []) {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                let angle = (i * Math.PI) / 3 - Math.PI / 6;
+                let px = x + r * Math.cos(angle);
+                let py = y + r * Math.sin(angle);
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+            if (fill) { ctx.fillStyle = fill; ctx.fill(); }
+            if (stroke) { 
+                ctx.setLineDash(dash);
+                ctx.strokeStyle = stroke; 
+                ctx.lineWidth = 2; 
+                ctx.stroke(); 
+                ctx.setLineDash([]);
+            }
+        }
+
+        // Рисуем иней кислорода
+        function drawOxygen(x, y, r, intensity) {
+            let dots = Math.floor(intensity * 60);
+            ctx.fillStyle = '#ff4444';
+            for (let i = 0; i < dots; i++) {
+                let angle = (i * Math.PI * 2) / dots;
+                let px = x + r * Math.cos(angle);
+                let py = y + r * Math.sin(angle);
+                ctx.beginPath();
+                ctx.arc(px, py, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            let oxyPercent = slider.value / 100;
+            
+            // Физика барьера
+            let depletionWidth = oxyPercent * 30; // Макс утолщение барьера внутри зерна
+            let effectiveRadius = baseRadius - depletionWidth;
+            let barrierNm = 1.0 + (oxyPercent * 14.0); // от 1 до 15 нм
+            
+            // Экспоненциальное падение вероятности туннелирования
+            // Формула T ~ exp(-W)
+            let probT = Math.exp(-oxyPercent * 6); 
+            let displayProb = (probT * 98.5).toFixed(1);
+            if (displayProb < 0.1) displayProb = "~0.0";
+
+            // Сопротивление (экспоненциальный рост)
+            let resBase = 1.2; // кОм
+            let resCurrent = resBase * Math.exp(oxyPercent * 8);
+            let displayRes = resCurrent < 1000 ? resCurrent.toFixed(1) + " кОм" : (resCurrent/1000).toFixed(1) + " МОм";
+
+            // Обновляем UI
+            elBarrier.innerText = barrierNm.toFixed(1) + " нм";
+            elProb.innerText = displayProb + " %";
+            elRes.innerText = displayRes;
+
+            // Отрисовка зерен
+            finalGrains.forEach(g => {
+                // Внешняя граница (физическое зерно)
+                drawHexagon(g.x, g.y, baseRadius, '#333', 'rgba(30, 30, 40, 0.5)');
+                
+                // Кислород на границе
+                if (oxyPercent > 0) {
+                    drawOxygen(g.x, g.y, baseRadius, oxyPercent);
+                }
+
+                // Внутренняя граница (проводящая зона, обедненная область снаружи)
+                drawHexagon(g.x, g.y, effectiveRadius, 'rgba(255, 68, 68, 0.5)', null, [5, 5]);
+            });
+
+            // Логика и отрисовка электронов
+            ctx.fillStyle = '#00e5ff';
+            electrons.forEach(e => {
+                // Броуновское
+                e.vx += (Math.random() - 0.5) * 2;
+                e.vy += (Math.random() - 0.5) * 2;
+                let speed = Math.hypot(e.vx, e.vy);
+                if(speed > 5) { e.vx = (e.vx/speed)*5; e.vy = (e.vy/speed)*5; }
+
+                e.x += e.vx;
+                e.y += e.vy;
+
+                let myGrain = finalGrains.find(g => g.id === e.grainId);
+                let distToCenter = Math.hypot(e.x - myGrain.x, e.y - myGrain.y);
+
+                // Если ударился о границу барьера (effectiveRadius)
+                if (distToCenter >= effectiveRadius - 2) {
+                    // Пытаемся туннелировать в другое зерно
+                    let tunneled = false;
+                    
+                    // Шанс туннелирования
+                    if (Math.random() < probT * 0.1) { 
+                        // Ищем соседнее зерно
+                        let closestOther = null;
+                        let minDist = Infinity;
+                        
+                        finalGrains.forEach(g => {
+                            if (g.id !== myGrain.id) {
+                                let d = Math.hypot(e.x - g.x, e.y - g.y);
+                                if (d < minDist) { minDist = d; closestOther = g; }
+                            }
+                        });
+
+                        // Если сосед достаточно близко для прыжка (в пределах общих границ)
+                        if (closestOther && minDist < baseRadius * 2.5) {
+                            // ТУННЕЛИРОВАНИЕ!
+                            let oldX = e.x; let oldY = e.y;
+                            
+                            // Перемещаем на край нового зерна (внутрь его разрешенной зоны)
+                            let angleToNew = Math.atan2(e.y - closestOther.y, e.x - closestOther.x);
+                            e.x = closestOther.x + (effectiveRadius - 5) * Math.cos(angleToNew);
+                            e.y = closestOther.y + (effectiveRadius - 5) * Math.sin(angleToNew);
+                            e.grainId = closestOther.id;
+                            
+                            // Добавляем красивую вспышку-молнию
+                            flashes.push({ x1: oldX, y1: oldY, x2: e.x, y2: e.y, life: 1.0 });
+                            tunneled = true;
+                        }
+                    }
+
+                    // Если не протуннелировал — отскакивает от стены (барьера)
+                    if (!tunneled) {
+                        let nx = (e.x - myGrain.x) / distToCenter;
+                        let ny = (e.y - myGrain.y) / distToCenter;
+                        let dot = e.vx * nx + e.vy * ny;
+                        e.vx -= 2 * dot * nx;
+                        e.vy -= 2 * dot * ny;
+                        
+                        // Загоняем внутрь
+                        e.x = myGrain.x + nx * (effectiveRadius - 3);
+                        e.y = myGrain.y + ny * (effectiveRadius - 3);
+                    }
+                }
+
+                // Рисуем электрон
+                ctx.beginPath();
+                ctx.arc(e.x, e.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Отрисовка вспышек туннелирования (как молнии)
+            for (let i = flashes.length - 1; i >= 0; i--) {
+                let f = flashes[i];
+                ctx.beginPath();
+                ctx.moveTo(f.x1, f.y1);
+                
+                // Делаем зигзаг
+                let midX = (f.x1 + f.x2)/2 + (Math.random() - 0.5)*10;
+                let midY = (f.y1 + f.y2)/2 + (Math.random() - 0.5)*10;
+                ctx.lineTo(midX, midY);
+                ctx.lineTo(f.x2, f.y2);
+                
+                ctx.strokeStyle = `rgba(255, 255, 255, ${f.life})`;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                f.life -= 0.1;
+                if (f.life <= 0) flashes.splice(i, 1);
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
