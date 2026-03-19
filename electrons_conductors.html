@@ -61,7 +61,7 @@
             -webkit-appearance: none;
             width: 90%;
             background: transparent;
-            /* Блокируем скролл страницы при возне со слайдером */
+            /* Вот эта штука сама блокирует скролл при возне со слайдером, JS тут нахер не нужен */
             touch-action: none; 
         }
         input[type=range]::-webkit-slider-runnable-track {
@@ -87,7 +87,6 @@
             background: #161b22;
             border: 1px solid #30363d;
             border-radius: 8px;
-            /* Защита от свайпов по самому канвасу */
             touch-action: none; 
         }
         #infoText {
@@ -128,9 +127,8 @@
     const energyVal = document.getElementById('energyVal');
     const infoText = document.getElementById('infoText');
 
-    // Жесткий фикс для мобилок: глушим стандартный скролл при касании
+    // Оставил блок скролла только для канваса, чтобы пальцем не таскали экран по графике
     const preventScroll = (e) => e.preventDefault();
-    slider.addEventListener('touchmove', preventScroll, { passive: false });
     canvas.addEventListener('touchmove', preventScroll, { passive: false });
 
     let mode = 'metal'; 
