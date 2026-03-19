@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Зонная теория - Мобильная версия</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            font-family: sans-serif;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 10px;
+            overflow-x: hidden;
+        }
+        h2 { margin: 10px 0 15px; font-size: 1.2rem; text-align: center; text-transform: uppercase; }
+        .controls {
+            display: flex;
+            gap: 10px;
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 15px;
+        }
+        button {
+            flex: 1;
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+            padding: 12px 0;
+            font-size: 14px;
+            border-radius: 6px;
+            font-weight: bold;
+            cursor: pointer;
+            touch-action: manipulation;
+        }
+        button.active {
+            background: #1f6feb;
+            color: #fff;
+            border-color: #1f6feb;
+        }
+        .slider-container {
+            width: 100%;
+            max-width: 600px;
+            background: #161b22;
+            padding: 15px 10px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            margin-bottom: 15px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+        .slider-container label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 90%;
+            background: transparent;
+            /* Блокируем скролл страницы при возне со слайдером */
+            touch-action: none; 
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 8px;
+            background: #30363d;
+            border-radius: 4px;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 28px;
+            width: 28px;
+            border-radius: 50%;
+            background: #da3633;
+            margin-top: -10px;
+            cursor: pointer;
+            border: 2px solid #fff;
+        }
+        canvas {
+            width: 100%;
+            max-width: 600px;
+            height: 300px;
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            /* Защита от свайпов по самому канвасу */
+            touch-action: none; 
+        }
+        #infoText {
+            margin-top: 15px;
+            font-size: 14px;
+            max-width: 600px;
+            text-align: center;
+            line-height: 1.4;
+            padding: 0 10px;
+        }
+    </style>
+</head>
+<body>
+    <h2>Зонная теория</h2>
+    
+    <div class="controls">
+        <button class="mode-btn active" data-mode="metal">Металл</button>
+        <button class="mode-btn" data-mode="semi">Полупроводник</button>
+        <button class="mode-btn" data-mode="dielectric">Диэлектрик</button>
+    </div>
+
+    <div class="slider-container">
+        <label for="energySlider">Накачка энергией: <span id="energyVal">0</span>%</label>
+        <input type="range" id="energySlider" min="0" max="100" value="0">
+    </div>
+
+    <canvas id="simCanvas" width="600" height="300"></canvas>
+    
+    <div id="infoText">
+        Зоны перекрываются. Электроны свободно гуляют. Проводимость максимальная.
+    </div>
+
+<script>
+    const canvas = document.getElementById('simCanvas');
+    const ctx = canvas.getContext('2d');
+    const modeBtns = document.querySelectorAll('.mode-btn');
+    const slider = document.getElementById('energySlider');
+    const energyVal = document.getElementById('energyVal');
+    const infoText = document.getElementById('infoText');
+
+    // Жесткий фикс для мобилок: глушим стандартный скролл при касании
+    const preventScroll = (e) => e.preventDefault();
+    slider.addEventListener('touchmove', preventScroll, { passive: false });
+    canvas.addEventListener('touchmove', preventScroll, { passive: false });
+
+    let mode = 'metal'; 
+    let energyLevel = 0;
+
+    const descriptions = {
+        metal: "Зоны перекрываются. Электроны свободно гуляют. Проводимость максимальная, сопротивление стремится к нулю.",
+        semi: "Есть небольшая запрещенная зона. Крути ползунок энергии — электроны начнут пробивать барьер и прыгать в зону проводимости.",
+        dielectric: "Огромная запрещенная зона. Сколько ни вкачивай энергию, барьер им не пробить. Тока не будет."
+    };
+
+    const bands = {
+        metal: { val: {y: 120, h: 180}, cond: {y: 0, h: 180} },
+        semi: { val: {y: 200, h: 100}, cond: {y: 0, h: 100} },
+        dielectric: { val: {y: 240, h: 60}, cond: {y: 0, h: 60} }
+    };
+
+    class Electron {
+        constructor() {
+            this.reset();
+        }
+        
+        reset() {
+            this.x = Math.random() * canvas.width;
+            const b = bands[mode].val;
+            this.y = b.y + Math.random() * b.h;
+            this.vx = (Math.random() - 0.5) * 2;
+            this.vy = (Math.random() - 0.5) * 2;
+            this.radius = 3;
+            this.isExcited = false;
+        }
+
+        update() {
+            let currentBands = bands[mode];
+            let energyFactor = energyLevel / 100;
+
+            if (mode === 'metal') {
+                this.x += this.vx * (1 + energyFactor * 4);
+                this.y += this.vy * (1 + energyFactor * 4);
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+            } 
+            else if (mode === 'semi') {
+                let jumpProb = energyFactor * 0.1; 
+                let fallProb = 0.05 - (energyFactor * 0.04); 
+
+                if (energyFactor > 0.1 && !this.isExcited && Math.random() < jumpProb) {
+                    this.isExcited = true;
+                    this.y = currentBands.cond.y + Math.random() * currentBands.cond.h;
+                } else if (this.isExcited && Math.random() < fallProb) {
+                    this.isExcited = false;
+                    this.y = currentBands.val.y + Math.random() * currentBands.val.h;
+                }
+
+                let speed = this.isExcited ? 2 + energyFactor * 3 : 0.5;
+                this.x += this.vx * speed;
+                
+                let bounds = this.isExcited ? currentBands.cond : currentBands.val;
+                this.y += this.vy * speed;
+                if (this.y < bounds.y || this.y > bounds.y + bounds.h) this.vy *= -1;
+            }
+            else if (mode === 'dielectric') {
+                this.x += this.vx * 0.3;
+                let shake = energyFactor * 5;
+                this.x += (Math.random() - 0.5) * shake;
+                this.y += (Math.random() - 0.5) * shake;
+                
+                let bounds = currentBands.val;
+                this.y += this.vy * 0.3;
+                if (this.y < bounds.y) this.y = bounds.y;
+                if (this.y > bounds.y + bounds.h) this.y = bounds.y + bounds.h;
+            }
+
+            if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+        }
+
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = (this.isExcited || (mode==='metal' && energyLevel>50)) ? '#ff7b72' : '#79c0ff';
+            ctx.fill();
+        }
+    }
+
+    let electrons = Array.from({length: 120}, () => new Electron());
+
+    function drawBands() {
+        let b = bands[mode];
+        
+        ctx.fillStyle = 'rgba(255, 123, 114, 0.15)';
+        ctx.fillRect(0, b.cond.y, canvas.width, b.cond.h);
+        ctx.fillStyle = 'rgba(255, 123, 114, 0.6)';
+        ctx.font = '14px sans-serif';
+        ctx.fillText('Зона проводимости', 10, b.cond.y + 20);
+
+        ctx.fillStyle = 'rgba(121, 192, 255, 0.15)';
+        ctx.fillRect(0, b.val.y, canvas.width, b.val.h);
+        ctx.fillStyle = 'rgba(121, 192, 255, 0.6)';
+        ctx.fillText('Валентная зона', 10, b.val.y + b.val.h - 10);
+    }
+
+    function animate() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (energyLevel > 0) {
+            ctx.fillStyle = `rgba(218, 54, 51, ${energyLevel * 0.002})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        drawBands();
+        electrons.forEach(e => { e.update(); e.draw(); });
+        requestAnimationFrame(animate);
+    }
+
+    modeBtns.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            modeBtns.forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            mode = e.target.dataset.mode;
+            infoText.innerHTML = descriptions[mode];
+            slider.value = 0;
+            energyLevel = 0;
+            energyVal.innerText = '0';
+            electrons.forEach(el => el.reset());
+        });
+    });
+
+    slider.addEventListener('input', (e) => {
+        energyLevel = e.target.value;
+        energyVal.innerText = energyLevel;
+    });
+
+    animate();
+</script>
+</body>
+</html>
