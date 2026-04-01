@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Дифракция (Наглядная физика)</title>
+    <style>
+        body {
+            background-color: #111;
+            color: #0f0;
+            font-family: 'Courier New', Courier, monospace;
+            text-align: center;
+            margin: 0;
+            padding: 20px;
+        }
+        canvas {
+            background-color: #000;
+            border: 1px solid #333;
+            box-shadow: 0 0 20px rgba(0, 255, 0, 0.2);
+            margin-top: 20px;
+            max-width: 100%;
+        }
+        .controls {
+            background: #222;
+            padding: 15px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-top: 20px;
+            border: 1px solid #444;
+        }
+        label {
+            font-size: 16px;
+            margin: 0 15px;
+            font-weight: bold;
+        }
+        input[type="range"] {
+            vertical-align: middle;
+            width: 150px;
+            cursor: pointer;
+        }
+        .value-display {
+            display: inline-block;
+            width: 40px;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Огибание препятствий (Дифракция на одной щели)</h2>
+    
+    <div class="controls">
+        <label>
+            Ширина щели (a): 
+            <input type="range" id="slitWidth" min="10" max="300" value="50">
+            <span class="value-display" id="slitVal">50</span> нм
+        </label>
+        |
+        <label>
+            Длина волны (λ): 
+            <input type="range" id="waveLength" min="10" max="300" value="193">
+            <span class="value-display" id="waveVal">193</span> нм
+        </label>
+    </div>
+
+    <br>
+    <canvas id="simCanvas" width="900" height="500"></canvas>
+
+    <script>
+        const canvas = document.getElementById('simCanvas');
+        const ctx = canvas.getContext('2d');
+        const slitSlider = document.getElementById('slitWidth');
+        const waveSlider = document.getElementById('waveLength');
+        const slitVal = document.getElementById('slitVal');
+        const waveVal = document.getElementById('waveVal');
+
+        let time = 0;
+
+        function draw() {
+            // Читаем параметры
+            const a = parseFloat(slitSlider.value);
+            const lambda = parseFloat(waveSlider.value);
+            
+            // Обновляем циферки на экране
+            slitVal.textContent = a;
+            waveVal.textContent = lambda;
+
+            // Чистим канвас
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const barrierX = 300; // Позиция преграды
+            const screenX = canvas.width - 50; // Позиция экрана
+            const L = screenX - barrierX; // Расстояние от щели до экрана
+            const centerY = canvas.height / 2;
+
+            // 1. Рисуем плоские волны слева (набегающий фронт)
+            ctx.strokeStyle = 'rgba(0, 150, 0, 0.5)';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < barrierX; i += Math.max(10, lambda / 2)) {
+                let x = barrierX - ((i + time) % barrierX);
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+
+            // 2. Рисуем интерференционную картину (лучи)
+            for (let y = 0; y < canvas.height; y += 4) {
+                let dy = y - centerY;
+                let theta = Math.atan2(dy, L);
+                
+                // Главная формула интенсивности дифракции: I = I0 * sinc^2(beta)
+                // beta = (pi * a * sin(theta)) / lambda
+                let beta = (Math.PI * a * Math.sin(theta)) / lambda;
+                
+                let intensity = 1;
+                if (beta !== 0) {
+                    intensity = Math.pow(Math.sin(beta) / beta, 2);
+                }
+
+                // Рисуем расходящиеся лучи с прозрачностью, зависящей от интенсивности
+                ctx.beginPath();
+                ctx.moveTo(barrierX, centerY);
+                ctx.lineTo(screenX, y);
+                ctx.strokeStyle = `rgba(0, 255, 0, ${intensity * 0.8})`;
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            }
+
+            // 3. Рисуем саму преграду (стену со щелью)
+            ctx.fillStyle = '#555';
+            // Верхняя часть стены
+            ctx.fillRect(barrierX - 10, 0, 20, centerY - a / 2);
+            // Нижняя часть стены
+            ctx.fillRect(barrierX - 10, centerY + a / 2, 20, canvas.height - (centerY + a / 2));
+
+            // 4. Рисуем экран справа
+            ctx.beginPath();
+            ctx.moveTo(screenX, 0);
+            ctx.lineTo(screenX, canvas.height);
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            // 5. Рисуем график интенсивности на экране
+            ctx.beginPath();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            for (let y = 0; y < canvas.height; y++) {
+                let dy = y - centerY;
+                let theta = Math.atan2(dy, L);
+                let beta = (Math.PI * a * Math.sin(theta)) / lambda;
+                
+                let intensity = beta === 0 ? 1 : Math.pow(Math.sin(beta) / beta, 2);
+                
+                // Масштабируем график по оси X (амплитуда до 150 пикселей влево от экрана)
+                let graphX = screenX + 10 + (intensity * 150); 
+                
+                if (y === 0) ctx.moveTo(graphX, y);
+                else ctx.lineTo(graphX, y);
+            }
+            ctx.stroke();
+
+            // Анимация бежит
+            time += 2;
+            requestAnimationFrame(draw);
+        }
+
+        // Запускаем шарманку
+        draw();
+    </script>
+</body>
+</html>
